@@ -1,0 +1,29 @@
+spring:
+  application.name: worker-client-sample
+  main.web-application-type: none
+  datasource:
+    url: ${PAYMENTS_DB_URL:jdbc:postgresql://localhost:5432/paymentsDB}
+    username: ${PAYMENTS_DB_USERNAME:postgres}
+    password: ${PAYMENTS_DB_PASSWORD:postgres}
+  jpa:
+    hibernate:
+      ddl-auto: validate
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+worker-client:
+  coordinator-url: ${COORDINATOR_URL:http://localhost:8080}
+  product-id: ${PRODUCT_ID:orders}
+  product-name: ${PRODUCT_NAME:Orders}
+  service-id: ${SERVICE_ID:order-processing}
+  service-name: ${SERVICE_NAME:Order Processing}
+  worker-type-id: ${WORKER_TYPE_ID:order-id-generator}
+  worker-type-name: ${WORKER_TYPE_NAME:Order ID Generator}
+  region-id: ${REGION_ID:1}
+  instance-id: ${WORKER_INSTANCE_ID:${random.uuid}}
+  renewal-interval: ${RENEWAL_INTERVAL:10s}
+  timestamp-bits: ${ID_TIMESTAMP_BITS:41}
+  region-bits: ${ID_REGION_BITS:4}
+  worker-bits: ${ID_WORKER_BITS:10}
+  sequence-bits: ${ID_SEQUENCE_BITS:8}
+  epoch-millis: ${ID_EPOCH_MILLIS:1704067200000}

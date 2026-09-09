@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns="http://maven.apache.org/POM/4.0.0"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>3.4.3</version>
+        <relativePath/>
+    </parent>
+    <groupId>com.example</groupId>
+    <artifactId>worker-id-coordinator-parent</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+    <name>worker-id-coordinator-parent</name>
+    <properties>
+        <java.version>21</java.version>
+        <!-- PostgreSQL 18 requires Flyway's current database module and engine. -->
+        <flyway.version>11.18.0</flyway.version>
+    </properties>
+    <packaging>pom</packaging>
+    <modules>
+        <module>coordinator-service</module>
+        <module>worker-id-client</module>
+        <module>worker-client-sample</module>
+    </modules>
+</project>
