@@ -8,5 +8,7 @@ public class PaymentRequestException extends RuntimeException {
         this.code = code;
     }
 
-    public String code() { return code; }
+    public String code() {
+        return code;
+    }
 }

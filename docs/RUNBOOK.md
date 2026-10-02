@@ -43,10 +43,14 @@ In web mode, `POST /api/v1/payments` accepts a UUIDv7 `clientIdempotencyKey` and
 table and JPA validates it with `ddl-auto=validate`. Override `PAYMENTS_DB_URL`, `PAYMENTS_DB_USERNAME`, and
 `PAYMENTS_DB_PASSWORD` for a different database.
 
-Each process must use a distinct `worker-client.instance-id`/`WORKER_INSTANCE_ID`. The coordinator logs or client logs show the acquired `workerId` and epoch.
+Each process must use a distinct `worker-client.instance-id`/`WORKER_INSTANCE_ID`. The coordinator logs or client logs
+show the acquired `workerId` and epoch.
 
 ## Troubleshooting
 
-- **Flyway says PostgreSQL is unsupported:** confirm Flyway 11.18.0 and `flyway-database-postgresql` are resolved; run `mvn dependency:tree`.
-- **`WORKER_NOT_AVAILABLE`:** all slots in the configured namespace are actively leased; raise `coordinator.worker-id-bits`, wait for expiry, or release clients.
-- **Lease lost:** stop local ID generation; inspect coordinator/database availability and start a fresh client instance if required.
+- **Flyway says PostgreSQL is unsupported:** confirm Flyway 11.18.0 and `flyway-database-postgresql` are resolved; run
+  `mvn dependency:tree`.
+- **`WORKER_NOT_AVAILABLE`:** all slots in the configured namespace are actively leased; raise
+  `coordinator.worker-id-bits`, wait for expiry, or release clients.
+- **Lease lost:** stop local ID generation; inspect coordinator/database availability and start a fresh client instance
+  if required.

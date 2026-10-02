@@ -1,9 +1,13 @@
 package com.example.workeridclient;
 
-/** Numeric Base62 using 0-9, a-z, A-Z. */
+/**
+ * Numeric Base62 using 0-9, a-z, A-Z.
+ */
 public final class Base62 {
     private static final char[] ALPHABET = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ".toCharArray();
-    private Base62() { }
+
+    private Base62() {
+    }
 
     public static String encode(long value) {
         if (value < 0) throw new IllegalArgumentException("only non-negative numbers are supported");

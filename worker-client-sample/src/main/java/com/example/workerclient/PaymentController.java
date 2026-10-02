@@ -14,7 +14,9 @@ import java.net.URI;
 public class PaymentController {
     private final PaymentService payments;
 
-    public PaymentController(PaymentService payments) { this.payments = payments; }
+    public PaymentController(PaymentService payments) {
+        this.payments = payments;
+    }
 
     @PostMapping
     public ResponseEntity<PaymentDtos.PaymentResponse> create(@Valid @RequestBody PaymentDtos.CreatePaymentRequest request) {

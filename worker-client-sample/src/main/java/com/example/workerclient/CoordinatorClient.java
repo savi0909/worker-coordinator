@@ -1,12 +1,68 @@
 package com.example.workerclient;
-import org.springframework.stereotype.Component; import org.springframework.web.client.RestClient; import java.time.*; import java.util.UUID;
-@Component public class CoordinatorClient {
- private final RestClient http; public CoordinatorClient(RestClient.Builder b,WorkerClientProperties p){http=b.baseUrl(p.coordinatorUrl()).build();}
- public void register(WorkerClientProperties p){post("/api/v1/products",new ProductRegistration(p.productId(),p.productName()));post("/api/v1/products/{productId}/services",new ServiceRegistration(p.serviceId(),p.serviceName()),p.productId());post("/api/v1/services/{serviceId}/worker-types",new WorkerTypeRegistration(p.workerTypeId(),p.workerTypeName()),p.serviceId());}
- public Lease acquire(WorkerClientProperties p){return lease("/api/v1/workers/acquire",new AcquireRequest(p.productId(),p.serviceId(),p.workerTypeId(),p.regionId(),p.instanceId(),UUID.randomUUID()));}
- public Lease renew(WorkerClientProperties p,Lease l){return lease("/api/v1/workers/renew",new RenewRequest(p.productId(),p.serviceId(),p.workerTypeId(),p.regionId(),l.workerId(),l.epoch(),p.instanceId(),UUID.randomUUID()));}
- public void release(WorkerClientProperties p,Lease l){post("/api/v1/workers/release",new ReleaseRequest(p.productId(),p.serviceId(),p.workerTypeId(),p.regionId(),l.workerId(),l.epoch(),p.instanceId(),UUID.randomUUID()));}
- private void post(String uri,Object body,Object... vars){http.post().uri(uri,vars).body(body).retrieve().toBodilessEntity();} private Lease lease(String uri,Object body){return http.post().uri(uri).body(body).retrieve().body(Lease.class);}
- record ProductRegistration(String productId,String productName){} record ServiceRegistration(String serviceId,String serviceName){} record WorkerTypeRegistration(String workerTypeId,String workerTypeName){} record AcquireRequest(String productId,String serviceId,String workerTypeId,int regionId,UUID instanceId,UUID registrationId){} record RenewRequest(String productId,String serviceId,String workerTypeId,int regionId,int workerId,long epoch,UUID instanceId,UUID registrationId){} record ReleaseRequest(String productId,String serviceId,String workerTypeId,int regionId,int workerId,long epoch,UUID instanceId,UUID registrationId){}
- public record Lease(String productId,String serviceId,String workerTypeId,int regionId,int workerId,long epoch,UUID instanceId,Instant leaseExpiry,Duration leaseDuration){}
+
+import org.springframework.stereotype.Component;
+import org.springframework.web.client.RestClient;
+
+import java.time.Duration;
+import java.time.Instant;
+import java.util.UUID;
+
+@Component
+public class CoordinatorClient {
+    private final RestClient http;
+
+    public CoordinatorClient(RestClient.Builder b, WorkerClientProperties p) {
+        http = b.baseUrl(p.coordinatorUrl()).build();
+    }
+
+    public void register(WorkerClientProperties p) {
+        post("/api/v1/products", new ProductRegistration(p.productId(), p.productName()));
+        post("/api/v1/products/{productId}/services", new ServiceRegistration(p.serviceId(), p.serviceName()), p.productId());
+        post("/api/v1/services/{serviceId}/worker-types", new WorkerTypeRegistration(p.workerTypeId(), p.workerTypeName()), p.serviceId());
+    }
+
+    public Lease acquire(WorkerClientProperties p) {
+        return lease("/api/v1/workers/acquire", new AcquireRequest(p.productId(), p.serviceId(), p.workerTypeId(), p.regionId(), p.instanceId(), UUID.randomUUID()));
+    }
+
+    public Lease renew(WorkerClientProperties p, Lease l) {
+        return lease("/api/v1/workers/renew", new RenewRequest(p.productId(), p.serviceId(), p.workerTypeId(), p.regionId(), l.workerId(), l.epoch(), p.instanceId(), UUID.randomUUID()));
+    }
+
+    public void release(WorkerClientProperties p, Lease l) {
+        post("/api/v1/workers/release", new ReleaseRequest(p.productId(), p.serviceId(), p.workerTypeId(), p.regionId(), l.workerId(), l.epoch(), p.instanceId(), UUID.randomUUID()));
+    }
+
+    private void post(String uri, Object body, Object... vars) {
+        http.post().uri(uri, vars).body(body).retrieve().toBodilessEntity();
+    }
+
+    private Lease lease(String uri, Object body) {
+        return http.post().uri(uri).body(body).retrieve().body(Lease.class);
+    }
+
+    record ProductRegistration(String productId, String productName) {
+    }
+
+    record ServiceRegistration(String serviceId, String serviceName) {
+    }
+
+    record WorkerTypeRegistration(String workerTypeId, String workerTypeName) {
+    }
+
+    record AcquireRequest(String productId, String serviceId, String workerTypeId, int regionId, UUID instanceId,
+                          UUID registrationId) {
+    }
+
+    record RenewRequest(String productId, String serviceId, String workerTypeId, int regionId, int workerId, long epoch,
+                        UUID instanceId, UUID registrationId) {
+    }
+
+    record ReleaseRequest(String productId, String serviceId, String workerTypeId, int regionId, int workerId,
+                          long epoch, UUID instanceId, UUID registrationId) {
+    }
+
+    public record Lease(String productId, String serviceId, String workerTypeId, int regionId, int workerId, long epoch,
+                        UUID instanceId, Instant leaseExpiry, Duration leaseDuration) {
+    }
 }

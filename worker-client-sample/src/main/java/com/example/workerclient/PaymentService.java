@@ -40,5 +40,6 @@ public class PaymentService {
                 payment.getCreatedAt(), payment.getUpdatedAt());
     }
 
-    public record PaymentResult(PaymentDtos.PaymentResponse response, boolean created) { }
+    public record PaymentResult(PaymentDtos.PaymentResponse response, boolean created) {
+    }
 }

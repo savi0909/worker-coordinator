@@ -5,7 +5,9 @@ import com.example.workeridclient.LeaseAwareIdGenerator;
 import com.example.workeridclient.LeaseSnapshot;
 import org.springframework.stereotype.Component;
 
-/** Payment-specific demonstration boundary; the reusable generator remains domain-neutral. */
+/**
+ * Payment-specific demonstration boundary; the reusable generator remains domain-neutral.
+ */
 @Component
 public final class PaymentIdGenerator {
     private final LeaseAwareIdGenerator generator;
@@ -19,7 +21,15 @@ public final class PaymentIdGenerator {
         generator.installLease(new LeaseSnapshot(lease.regionId(), lease.workerId(), lease.epoch(), lease.leaseExpiry()));
     }
 
-    public void leaseLost() { generator.fence(); }
-    public long nextPaymentIdLong() { return generator.nextLong(); }
-    public String nextPaymentId() { return generator.nextBase62(); }
+    public void leaseLost() {
+        generator.fence();
+    }
+
+    public long nextPaymentIdLong() {
+        return generator.nextLong();
+    }
+
+    public String nextPaymentId() {
+        return generator.nextBase62();
+    }
 }

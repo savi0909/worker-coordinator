@@ -1,9 +1,65 @@
 package com.example.workerclient;
-import jakarta.annotation.PreDestroy; import org.slf4j.*; import org.springframework.boot.ApplicationRunner; import org.springframework.context.annotation.Bean; import org.springframework.scheduling.annotation.Scheduled; import org.springframework.stereotype.Component; import java.util.concurrent.atomic.AtomicReference;
-@Component public class WorkerLeaseLifecycle {
- private static final Logger log=LoggerFactory.getLogger(WorkerLeaseLifecycle.class); private final CoordinatorClient client; private final WorkerClientProperties properties; private final PaymentIdGenerator paymentIds; private final AtomicReference<CoordinatorClient.Lease> lease=new AtomicReference<>();
- public WorkerLeaseLifecycle(CoordinatorClient c,WorkerClientProperties p,PaymentIdGenerator ids){client=c;properties=p;paymentIds=ids;}
- @Bean ApplicationRunner acquireWorkerLease(){return args->{client.register(properties);var acquired=client.acquire(properties);lease.set(acquired);paymentIds.leaseAcquired(acquired);log.info("Worker lease acquired: region={}, worker={}, epoch={}, expiry={}, paymentId={}",acquired.regionId(),acquired.workerId(),acquired.epoch(),acquired.leaseExpiry(),paymentIds.nextPaymentId());};}
- @Scheduled(fixedDelayString="${worker-client.renewal-interval:10s}") void renewLease(){var current=lease.get();if(current==null)return;try{var renewed=client.renew(properties,current);paymentIds.leaseAcquired(renewed);lease.set(renewed);log.info("Worker lease renewed: worker={}, epoch={}",renewed.workerId(),renewed.epoch());}catch(RuntimeException failure){lease.compareAndSet(current,null);paymentIds.leaseLost();log.error("Worker lease lost; payment ID generation fenced",failure);}}
- @PreDestroy void releaseLease(){var current=lease.getAndSet(null);paymentIds.leaseLost();if(current==null)return;try{client.release(properties,current);}catch(RuntimeException failure){log.warn("Could not release lease; it will expire naturally",failure);}}
+
+import jakarta.annotation.PreDestroy;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.boot.ApplicationRunner;
+import org.springframework.context.annotation.Bean;
+import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.stereotype.Component;
+
+import java.util.concurrent.atomic.AtomicReference;
+
+@Component
+public class WorkerLeaseLifecycle {
+    private static final Logger log = LoggerFactory.getLogger(WorkerLeaseLifecycle.class);
+    private final CoordinatorClient client;
+    private final WorkerClientProperties properties;
+    private final PaymentIdGenerator paymentIds;
+    private final AtomicReference<CoordinatorClient.Lease> lease = new AtomicReference<>();
+
+    public WorkerLeaseLifecycle(CoordinatorClient c, WorkerClientProperties p, PaymentIdGenerator ids) {
+        client = c;
+        properties = p;
+        paymentIds = ids;
+    }
+
+    @Bean
+    ApplicationRunner acquireWorkerLease() {
+        return args -> {
+            client.register(properties);
+            var acquired = client.acquire(properties);
+            lease.set(acquired);
+            paymentIds.leaseAcquired(acquired);
+            log.info("Worker lease acquired: region={}, worker={}, epoch={}, expiry={}, paymentId={}", acquired.regionId(), acquired.workerId(), acquired.epoch(), acquired.leaseExpiry(), paymentIds.nextPaymentId());
+        };
+    }
+
+    @Scheduled(fixedDelayString = "${worker-client.renewal-interval:10s}")
+    void renewLease() {
+        var current = lease.get();
+        if (current == null) return;
+        try {
+            var renewed = client.renew(properties, current);
+            paymentIds.leaseAcquired(renewed);
+            lease.set(renewed);
+            log.info("Worker lease renewed: worker={}, epoch={}", renewed.workerId(), renewed.epoch());
+        } catch (RuntimeException failure) {
+            lease.compareAndSet(current, null);
+            paymentIds.leaseLost();
+            log.error("Worker lease lost; payment ID generation fenced", failure);
+        }
+    }
+
+    @PreDestroy
+    void releaseLease() {
+        var current = lease.getAndSet(null);
+        paymentIds.leaseLost();
+        if (current == null) return;
+        try {
+            client.release(properties, current);
+        } catch (RuntimeException failure) {
+            log.warn("Could not release lease; it will expire naturally", failure);
+        }
+    }
 }

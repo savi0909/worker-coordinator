@@ -7,7 +7,8 @@ import java.util.HashSet;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicLong;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class LeaseAwareIdGeneratorTest {
     private static final Instant EXPIRY = Instant.ofEpochMilli(2_000_000);
@@ -16,7 +17,8 @@ class LeaseAwareIdGeneratorTest {
     void generatesUniqueIdsAndPreservesConfiguredFields() {
         AtomicLong clock = new AtomicLong(1_000_000);
         IdLayout layout = new IdLayout(40, 4, 10, 9, 0);
-        LeaseAwareIdGenerator generator = new LeaseAwareIdGenerator(layout, clock::get, ignored -> { });
+        LeaseAwareIdGenerator generator = new LeaseAwareIdGenerator(layout, clock::get, ignored -> {
+        });
         generator.installLease(new LeaseSnapshot(3, 17, 4, EXPIRY));
 
         Set<Long> ids = new HashSet<>();
@@ -50,13 +52,15 @@ class LeaseAwareIdGeneratorTest {
     @Test
     void expiryAndExplicitFencingStopGeneration() {
         AtomicLong clock = new AtomicLong(100);
-        LeaseAwareIdGenerator generator = new LeaseAwareIdGenerator(new IdLayout(41, 1, 1, 2, 0), clock::get, ignored -> { });
+        LeaseAwareIdGenerator generator = new LeaseAwareIdGenerator(new IdLayout(41, 1, 1, 2, 0), clock::get, ignored -> {
+        });
         generator.installLease(new LeaseSnapshot(0, 0, 1, Instant.ofEpochMilli(100)));
         assertThrows(LeaseUnavailableException.class, generator::nextLong);
         assertThrows(LeaseUnavailableException.class,
                 () -> generator.installLease(new LeaseSnapshot(0, 0, 2, Instant.ofEpochMilli(200))));
 
-        LeaseAwareIdGenerator explicitlyFenced = new LeaseAwareIdGenerator(new IdLayout(41, 1, 1, 2, 0), clock::get, ignored -> { });
+        LeaseAwareIdGenerator explicitlyFenced = new LeaseAwareIdGenerator(new IdLayout(41, 1, 1, 2, 0), clock::get, ignored -> {
+        });
         explicitlyFenced.installLease(new LeaseSnapshot(0, 0, 1, Instant.ofEpochMilli(200)));
         explicitlyFenced.fence();
         assertThrows(LeaseUnavailableException.class, explicitlyFenced::nextLong);
@@ -66,12 +70,14 @@ class LeaseAwareIdGeneratorTest {
     void staleEpochAndClockRollbackFenceGenerator() {
         AtomicLong clock = new AtomicLong(IdLayout.DEFAULT.epochMillis() + 100);
         Instant expiry = Instant.ofEpochMilli(IdLayout.DEFAULT.epochMillis() + 2_000_000);
-        LeaseAwareIdGenerator stale = new LeaseAwareIdGenerator(IdLayout.DEFAULT, clock::get, ignored -> { });
+        LeaseAwareIdGenerator stale = new LeaseAwareIdGenerator(IdLayout.DEFAULT, clock::get, ignored -> {
+        });
         stale.installLease(new LeaseSnapshot(1, 1, 3, expiry));
         assertThrows(LeaseUnavailableException.class, () -> stale.installLease(new LeaseSnapshot(1, 1, 2, expiry)));
         assertThrows(LeaseUnavailableException.class, stale::nextLong);
 
-        LeaseAwareIdGenerator rollback = new LeaseAwareIdGenerator(IdLayout.DEFAULT, clock::get, ignored -> { });
+        LeaseAwareIdGenerator rollback = new LeaseAwareIdGenerator(IdLayout.DEFAULT, clock::get, ignored -> {
+        });
         rollback.installLease(new LeaseSnapshot(1, 1, 1, expiry));
         rollback.nextLong();
         clock.set(99);

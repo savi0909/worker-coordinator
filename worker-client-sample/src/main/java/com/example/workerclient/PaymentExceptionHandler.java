@@ -1,6 +1,5 @@
 package com.example.workerclient;
 
-import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -14,5 +13,6 @@ public class PaymentExceptionHandler {
         return ResponseEntity.badRequest().body(new ErrorResponse(Instant.now(), error.code(), error.getMessage()));
     }
 
-    public record ErrorResponse(Instant timestamp, String code, String message) { }
+    public record ErrorResponse(Instant timestamp, String code, String message) {
+    }
 }

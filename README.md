@@ -31,9 +31,11 @@ first acquisition, and allocated in a PostgreSQL transaction with `FOR UPDATE SK
 increments the epoch and records lease history. Lease expiry processing, end-to-end self-fencing, ID generation/Base62,
 SDK, and production authentication remain deferred.
 
-See [the technical reference](docs/TECHNICAL_SPEC.md) for the data model, API contracts, locking algorithm, invariants, and future-work boundaries.
+See [the technical reference](docs/TECHNICAL_SPEC.md) for the data model, API contracts, locking algorithm, invariants,
+and future-work boundaries.
 
 ## Modules
 
 - `coordinator-service`: Spring Boot coordinator and PostgreSQL migrations.
-- `worker-client-sample`: standalone registration/acquisition/renewal/release client. See its [run guide](worker-client-sample/README.md).
+- `worker-client-sample`: standalone registration/acquisition/renewal/release client. See
+  its [run guide](worker-client-sample/README.md).

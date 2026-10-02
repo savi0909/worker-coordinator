@@ -1,11 +1,6 @@
 package com.example.workerclient;
 
-import jakarta.persistence.Column;
-import jakarta.persistence.Entity;
-import jakarta.persistence.Id;
-import jakarta.persistence.Table;
-import jakarta.persistence.PrePersist;
-import jakarta.persistence.PreUpdate;
+import jakarta.persistence.*;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -29,7 +24,8 @@ public class PaymentEntity {
     @Column(nullable = false, precision = 19, scale = 4)
     private BigDecimal amount;
 
-    protected PaymentEntity() { }
+    protected PaymentEntity() {
+    }
 
     public PaymentEntity(long id, UUID clientIdempotencyKey, BigDecimal amount) {
         this.id = id;
@@ -45,11 +41,27 @@ public class PaymentEntity {
     }
 
     @PreUpdate
-    void onUpdate() { updatedAt = Instant.now(); }
+    void onUpdate() {
+        updatedAt = Instant.now();
+    }
 
-    public Long getId() { return id; }
-    public Instant getCreatedAt() { return createdAt; }
-    public Instant getUpdatedAt() { return updatedAt; }
-    public UUID getClientIdempotencyKey() { return clientIdempotencyKey; }
-    public BigDecimal getAmount() { return amount; }
+    public Long getId() {
+        return id;
+    }
+
+    public Instant getCreatedAt() {
+        return createdAt;
+    }
+
+    public Instant getUpdatedAt() {
+        return updatedAt;
+    }
+
+    public UUID getClientIdempotencyKey() {
+        return clientIdempotencyKey;
+    }
+
+    public BigDecimal getAmount() {
+        return amount;
+    }
 }

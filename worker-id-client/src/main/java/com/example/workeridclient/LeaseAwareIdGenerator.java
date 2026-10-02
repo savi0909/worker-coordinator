@@ -4,7 +4,9 @@ import java.time.Instant;
 import java.util.Objects;
 import java.util.function.LongSupplier;
 
-/** Thread-safe, fail-closed ID generator guarded by the current local lease. */
+/**
+ * Thread-safe, fail-closed ID generator guarded by the current local lease.
+ */
 public final class LeaseAwareIdGenerator {
     private final IdLayout layout;
     private final LongSupplier clockMillis;
@@ -77,7 +79,9 @@ public final class LeaseAwareIdGenerator {
                 | sequence;
     }
 
-    public String nextBase62() { return Base62.encode(nextLong()); }
+    public String nextBase62() {
+        return Base62.encode(nextLong());
+    }
 
     public synchronized boolean isGenerationAllowed() {
         return !fenced && lease != null && Instant.ofEpochMilli(clockMillis.getAsLong()).isBefore(lease.leaseExpiry());
@@ -100,13 +104,16 @@ public final class LeaseAwareIdGenerator {
     }
 
     private void sleepOneMillisecond() {
-        try { sleeper.sleep(1); }
-        catch (InterruptedException interrupted) {
+        try {
+            sleeper.sleep(1);
+        } catch (InterruptedException interrupted) {
             Thread.currentThread().interrupt();
             throw new LeaseUnavailableException("generation interrupted while waiting for sequence capacity");
         }
     }
 
     @FunctionalInterface
-    public interface Sleeper { void sleep(long millis) throws InterruptedException; }
+    public interface Sleeper {
+        void sleep(long millis) throws InterruptedException;
+    }
 }

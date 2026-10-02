@@ -3,11 +3,14 @@ package com.example.workerclient;
 import java.security.SecureRandom;
 import java.util.UUID;
 
-/** Minimal RFC 9562 UUIDv7 generator for request idempotency keys. */
+/**
+ * Minimal RFC 9562 UUIDv7 generator for request idempotency keys.
+ */
 public final class UuidV7 {
     private static final SecureRandom RANDOM = new SecureRandom();
 
-    private UuidV7() { }
+    private UuidV7() {
+    }
 
     public static UUID random() {
         long timestamp = System.currentTimeMillis() & 0x0000FFFFFFFFFFFFL;

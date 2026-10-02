@@ -1,6 +1,8 @@
 package com.example.workeridclient;
 
-/** Configurable positive signed-64-bit Snowflake-style layout. */
+/**
+ * Configurable positive signed-64-bit Snowflake-style layout.
+ */
 public record IdLayout(int timestampBits, int regionBits, int workerBits, int sequenceBits, long epochMillis) {
     public static final IdLayout DEFAULT = new IdLayout(41, 4, 10, 8, 1_704_067_200_000L);
 
@@ -14,12 +16,35 @@ public record IdLayout(int timestampBits, int regionBits, int workerBits, int se
         }
     }
 
-    public long timestampMask() { return mask(timestampBits); }
-    public long regionMask() { return mask(regionBits); }
-    public long workerMask() { return mask(workerBits); }
-    public long sequenceMask() { return mask(sequenceBits); }
-    public int totalBits() { return timestampBits + regionBits + workerBits + sequenceBits; }
-    public int regionShift() { return workerBits + sequenceBits; }
-    public int workerShift() { return sequenceBits; }
-    private static long mask(int bits) { return bits == 63 ? Long.MAX_VALUE : (1L << bits) - 1; }
+    private static long mask(int bits) {
+        return bits == 63 ? Long.MAX_VALUE : (1L << bits) - 1;
+    }
+
+    public long timestampMask() {
+        return mask(timestampBits);
+    }
+
+    public long regionMask() {
+        return mask(regionBits);
+    }
+
+    public long workerMask() {
+        return mask(workerBits);
+    }
+
+    public long sequenceMask() {
+        return mask(sequenceBits);
+    }
+
+    public int totalBits() {
+        return timestampBits + regionBits + workerBits + sequenceBits;
+    }
+
+    public int regionShift() {
+        return workerBits + sequenceBits;
+    }
+
+    public int workerShift() {
+        return sequenceBits;
+    }
 }

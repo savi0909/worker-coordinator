@@ -13,7 +13,8 @@
 
 ## Current phase
 
-The service can allocate and manage basic leases. The next priority is proving and strengthening its runtime behavior rather than adding business-domain features.
+The service can allocate and manage basic leases. The next priority is proving and strengthening its runtime behavior
+rather than adding business-domain features.
 
 ## Next priorities
 

@@ -25,7 +25,8 @@ $renew = @{ productId=$lease.productId; serviceId=$lease.serviceId; workerTypeId
 Invoke-RestMethod "$base/workers/renew" -Method Post -ContentType 'application/json' -Body $renew
 ```
 
-Release it with the same namespace, worker ID, epoch, and instance ID. A stale epoch or different instance must be rejected.
+Release it with the same namespace, worker ID, epoch, and instance ID. A stale epoch or different instance must be
+rejected.
 
 ## Sample payment API
 
