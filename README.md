@@ -28,8 +28,9 @@ integration tests require Docker.
 
 Registration, hierarchy persistence, and basic worker allocation are implemented. Slot rows are retained, seeded on
 first acquisition, and allocated in a PostgreSQL transaction with `FOR UPDATE SKIP LOCKED`; each ownership transition
-increments the epoch and records lease history. Lease expiry processing, end-to-end self-fencing, ID generation/Base62,
-SDK, and production authentication remain deferred.
+increments the epoch and records lease history. The `worker-id-client` SDK provides optional local lease-aware
+Snowflake-style IDs and numeric Base62. The server does not issue individual IDs. Lease-expiration operations,
+end-to-end distributed self-fencing and production authentication remain deferred.
 
 See [the technical reference](docs/TECHNICAL_SPEC.md) for the data model, API contracts, locking algorithm, invariants,
 and future-work boundaries.
@@ -37,5 +38,16 @@ and future-work boundaries.
 ## Modules
 
 - `coordinator-service`: Spring Boot coordinator and PostgreSQL migrations.
+- `worker-id-client`: reusable local lease-aware generator and Base62 encoder.
 - `worker-client-sample`: standalone registration/acquisition/renewal/release client. See
   its [run guide](worker-client-sample/README.md).
+
+## URL shortener Docker integration
+
+The independent [URL shortener lab](../url-shortener-lab/README.md) uses this
+coordinator and SDK for short codes. Its [Compose file](../url-shortener-lab/compose.yml)
+builds this project's Dockerfile and runs the coordinator on loopback8120 with
+its own PostgreSQL5552/retained volume; it also runs two shortener APIs and their
+separate storage/cache. Build with `mvn -B -ntp install` here first, then follow
+the shortener guide. This does not start the payment sample or change generic
+coordinator allocation. No production/global-ID uniqueness claim is implied.

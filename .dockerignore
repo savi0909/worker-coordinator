@@ -1,0 +1,7 @@
+*
+!Dockerfile
+!coordinator-service/
+coordinator-service/*
+!coordinator-service/target/
+coordinator-service/target/*
+!coordinator-service/target/coordinator-service-0.1.0-SNAPSHOT.jar
