@@ -3,6 +3,11 @@
 This repository is generic distributed-systems infrastructure. Preserve the hierarchy **Product → Service → Worker
 Type → Worker Instance → Worker Lease**. Never introduce business-domain-specific names or assumptions.
 
+Code-study entry: [IntelliJ tutorial](docs/INTELLIJ_CODE_STUDY_TUTORIAL.md).
+User-directed 2026-10-03: after successful task-appropriate validation, commit
+task changes and push to origin; preserve unrelated edits and verify delivery.
+Teaching-only requests authorize documentation, not application behavior changes.
+
 - Java 21 and Spring Boot 3; use constructor injection and REST/domain/JPA DTO separation.
 - PostgreSQL is authoritative. Evolve schema exclusively through Flyway migrations; keep `ddl-auto=validate`.
 - Lease expiry is `Instant`, duration is `Duration`, and epochs are PostgreSQL `BIGINT` and strictly monotonic per

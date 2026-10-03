@@ -51,3 +51,7 @@ its own PostgreSQL5552/retained volume; it also runs two shortener APIs and thei
 separate storage/cache. Build with `mvn -B -ntp install` here first, then follow
 the shortener guide. This does not start the payment sample or change generic
 coordinator allocation. No production/global-ID uniqueness claim is implied.
+
+## Code study
+
+[Detailed IntelliJ project study guide](docs/INTELLIJ_CODE_STUDY_TUTORIAL.md): ordered source reading, API/event traces, debugger checkpoints, exercises, tests, and engineering tradeoffs.
