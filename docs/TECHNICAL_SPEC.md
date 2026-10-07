@@ -30,6 +30,34 @@ Slots are namespace-local: unrelated worker types may both own `regionId=1, work
 | `POST /api/v1/workers/renew`                     | Extends a valid lease only when instance and epoch match.  |
 | `POST /api/v1/workers/release`                   | Releases a valid lease only when instance and epoch match. |
 
+### Read API
+
+| Endpoint                                                                     | Result                                                   |
+|------------------------------------------------------------------------------|----------------------------------------------------------|
+| `GET /api/v1/products`                                                       | All products, sorted by ID.                              |
+| `GET /api/v1/products/{productId}`                                           | One product.                                             |
+| `GET /api/v1/products/{productId}/services`                                  | Services of the product; `404 PRODUCT_NOT_FOUND` if none. |
+| `GET /api/v1/services/{serviceId}`                                           | One service.                                             |
+| `GET /api/v1/services/{serviceId}/worker-types`                              | Worker types of the service; `404 SERVICE_NOT_FOUND`.    |
+| `GET /api/v1/worker-types/{workerTypeId}`                                    | One worker type.                                         |
+| `GET /api/v1/worker-types/{workerTypeId}/workers`                            | Paged worker slots of the worker type.                   |
+| `GET /api/v1/worker-types/{workerTypeId}/regions/{regionId}/workers/{workerId}` | One worker slot; `404 WORKER_NOT_FOUND` if not seeded. |
+
+Worker reads are scoped by worker type because its globally unique ID identifies the owning service and product. The
+query service resolves that full `(product, service, worker type)` prefix so slot queries seek the `workers` primary-key
+index. The list accepts optional `regionId` (`0..15`) and `status` (`AVAILABLE`, `LEASED`, `EXPIRED`) filters plus
+`limit` (`1..1000`, default `100`) and `offset` (default `0`), ordered by `regionId, workerId`. It returns
+`{workers, limit, offset, hasMore}`; `hasMore` comes from fetching one extra row instead of counting.
+
+Each slot reports `productId`, `serviceId`, `workerTypeId`, `regionId`, `workerId`, `epoch`, `ownerInstanceId`,
+`status`, and `leaseExpiry`. `status` is effective: because no scheduler rewrites expired rows, a `LEASED` row whose
+`lease_expiry` has passed by the database clock is reported as `EXPIRED`, with its last owner still shown. Slots exist
+only after the first acquisition in a namespace, so a newly registered worker type lists no workers. Reads take no row
+locks and are an observation, not an ownership guarantee.
+
+Out-of-range or unparsable parameters return `400 INVALID_REQUEST` with per-parameter `errors`; a status that is not a
+slot status (for example `ACTIVE`) returns `400 INVALID_STATUS_FILTER`.
+
 The payment sample additionally exposes `POST /api/v1/payments`. It accepts a UUIDv7 `clientIdempotencyKey` and a
 positive decimal `amount`. A new request returns `201 Created` with a generated numeric payment `id`; replaying the
 same key returns the existing payment with `200 OK`.

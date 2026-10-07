@@ -13,6 +13,8 @@ import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
+
 @RestController
 @RequestMapping("/api/v1")
 public class RegistrationController {
@@ -32,9 +34,19 @@ public class RegistrationController {
         return products.registerProduct(r.productId(), r.productName());
     }
 
+    @GetMapping("/products")
+    List<ProductDefinition> products() {
+        return products.listProducts();
+    }
+
     @GetMapping("/products/{productId}")
     ProductDefinition product(@PathVariable String productId) {
         return products.getProduct(productId);
+    }
+
+    @GetMapping("/products/{productId}/services")
+    List<ServiceDefinition> services(@PathVariable String productId) {
+        return services.listServices(productId);
     }
 
     @PostMapping("/products/{productId}/services")
@@ -46,6 +58,11 @@ public class RegistrationController {
     @GetMapping("/services/{serviceId}")
     ServiceDefinition service(@PathVariable String serviceId) {
         return services.getService(serviceId);
+    }
+
+    @GetMapping("/services/{serviceId}/worker-types")
+    List<WorkerTypeDefinition> workerTypes(@PathVariable String serviceId) {
+        return workerTypes.listWorkerTypes(serviceId);
     }
 
     @PostMapping("/services/{serviceId}/worker-types")
