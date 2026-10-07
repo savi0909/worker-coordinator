@@ -13,8 +13,11 @@ import com.example.workercoordinator.repository.entity.WorkerTypeEntity;
 import com.example.workercoordinator.repository.springdata.ProductRepository;
 import com.example.workercoordinator.repository.springdata.ServiceRepository;
 import com.example.workercoordinator.repository.springdata.WorkerTypeRepository;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
+import java.util.List;
 
 @Service
 public class RegistrationServices implements ProductService, ServiceRegistrationService, WorkerTypeService {
@@ -45,6 +48,12 @@ public class RegistrationServices implements ProductService, ServiceRegistration
     }
 
     @Override
+    @Transactional(readOnly = true)
+    public List<ProductDefinition> listProducts() {
+        return products.findAll(Sort.by("id")).stream().map(this::product).toList();
+    }
+
+    @Override
     @Transactional
     public ServiceDefinition registerService(String productId, String id, String name) {
         getProduct(productId);
@@ -62,6 +71,13 @@ public class RegistrationServices implements ProductService, ServiceRegistration
     }
 
     @Override
+    @Transactional(readOnly = true)
+    public List<ServiceDefinition> listServices(String productId) {
+        getProduct(productId);
+        return services.findByProductIdOrderByIdAsc(productId).stream().map(this::service).toList();
+    }
+
+    @Override
     @Transactional
     public WorkerTypeDefinition registerWorkerType(String serviceId, String id, String name) {
         getService(serviceId);
@@ -76,6 +92,13 @@ public class RegistrationServices implements ProductService, ServiceRegistration
     @Transactional(readOnly = true)
     public WorkerTypeDefinition getWorkerType(String id) {
         return workerTypes.findById(id).map(this::workerType).orElseThrow(() -> notFound("WORKER_TYPE_NOT_FOUND", id));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<WorkerTypeDefinition> listWorkerTypes(String serviceId) {
+        getService(serviceId);
+        return workerTypes.findByServiceIdOrderByIdAsc(serviceId).stream().map(this::workerType).toList();
     }
 
     private boolean same(String a, String b, String code) {

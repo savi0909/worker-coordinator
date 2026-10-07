@@ -28,6 +28,26 @@ Invoke-RestMethod "$base/workers/renew" -Method Post -ContentType 'application/j
 Release it with the same namespace, worker ID, epoch, and instance ID. A stale epoch or different instance must be
 rejected.
 
+## Read the hierarchy and worker slots
+
+Walk the hierarchy top-down: product → service → worker type → worker slots.
+
+```powershell
+Invoke-RestMethod "$base/products"
+Invoke-RestMethod "$base/products/orders/services"
+Invoke-RestMethod "$base/services/order-processing/worker-types"
+```
+
+List slots of a worker type, optionally filtered by region and effective status, and page with `limit`/`offset`:
+
+```powershell
+Invoke-RestMethod "$base/worker-types/order-id-generator/workers?regionId=1&status=LEASED&limit=50"
+Invoke-RestMethod "$base/worker-types/order-id-generator/regions/1/workers/$($lease.workerId)"
+```
+
+A lease that passed its expiry without renewal shows `status = EXPIRED` and keeps its last `ownerInstanceId` until
+another instance acquires the slot.
+
 ## Sample payment API
 
 The sample client runs on its own port in servlet mode and connects to `paymentsDB`:

@@ -13,16 +13,19 @@ own worker 17 in region 1 without conflict.
 
 ## API
 
-- `POST/GET /api/v1/products`
-- `POST /api/v1/products/{productId}/services`, `GET /api/v1/services/{serviceId}`
-- `POST /api/v1/services/{serviceId}/worker-types`, `GET /api/v1/worker-types/{workerTypeId}`
+- `POST/GET /api/v1/products`, `GET /api/v1/products/{productId}`
+- `POST/GET /api/v1/products/{productId}/services`, `GET /api/v1/services/{serviceId}`
+- `POST/GET /api/v1/services/{serviceId}/worker-types`, `GET /api/v1/worker-types/{workerTypeId}`
+- `GET /api/v1/worker-types/{workerTypeId}/workers?regionId=&status=&limit=&offset=`
+- `GET /api/v1/worker-types/{workerTypeId}/regions/{regionId}/workers/{workerId}`
 - `POST /api/v1/workers/acquire|renew|release`
 
 ## Local development
 
 Provide PostgreSQL via `SPRING_DATASOURCE_URL`, `SPRING_DATASOURCE_USERNAME`, and `SPRING_DATASOURCE_PASSWORD`, then run
 `mvn spring-boot:run`. Flyway owns migrations and JPA validates the schema. Run tests with `mvn test`; Testcontainers
-integration tests require Docker.
+integration tests require Docker and are skipped when it is unreachable. Docker Engine 29+ rejects the API version that
+Testcontainers 1.20 negotiates by default, so run `mvn test -Dapi.version=1.44` there.
 
 ## Current limitations
 
