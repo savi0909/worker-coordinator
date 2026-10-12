@@ -5,7 +5,7 @@ Runtime exercises below are instructions and predictions, not results from this
 documentation session. Existing execution evidence remains in the linked project
 documents. Reading or passing a test does not establish learner mastery.
 
-For a compact application-design walkthrough, read the [URL shortener staff-engineer tutorial](URL_SHORTENER_STAFF_TUTORIAL.md): mapping authority, retries, leased IDs, caching, expiry and scaling decisions.
+Start with the [distributed coordinator API and functionality tutorial](COORDINATOR_APIS_AND_FUNCTIONALITY_TUTORIAL.md) for the core model, complete API lifecycle, slot locking, epochs, inspection and failure behavior.
 
 ## 1. Prepare the study session
 

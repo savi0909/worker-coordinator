@@ -57,6 +57,6 @@ coordinator allocation. No production/global-ID uniqueness claim is implied.
 
 ## Code study
 
-[URL shortener staff-engineer tutorial](docs/URL_SHORTENER_STAFF_TUTORIAL.md): five-minute core, database invariants, retries, ID choices, expiry, capacity math and failure walkthroughs grounded in the companion lab.
+[Distributed coordinator API and functionality tutorial](docs/COORDINATOR_APIS_AND_FUNCTIONALITY_TUTORIAL.md): five-minute core, complete API lifecycle, slot locking, epochs, retry semantics, inspection and failure walkthroughs at staff-engineer depth.
 
 [Detailed IntelliJ project study guide](docs/INTELLIJ_CODE_STUDY_TUTORIAL.md): ordered source reading, API/event traces, debugger checkpoints, exercises, tests, and engineering tradeoffs.
