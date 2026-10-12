@@ -5,6 +5,8 @@ Runtime exercises below are instructions and predictions, not results from this
 documentation session. Existing execution evidence remains in the linked project
 documents. Reading or passing a test does not establish learner mastery.
 
+For a compact application-design walkthrough, read the [URL shortener staff-engineer tutorial](URL_SHORTENER_STAFF_TUTORIAL.md): mapping authority, retries, leased IDs, caching, expiry and scaling decisions.
+
 ## 1. Prepare the study session
 
 Open `D:/java-projects/pom.xml` as a Maven project, use JDK 21 for both the project
