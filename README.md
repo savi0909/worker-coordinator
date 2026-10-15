@@ -57,6 +57,8 @@ coordinator allocation. No production/global-ID uniqueness claim is implied.
 
 ## Code study
 
+[Concise AsciiDoc tutorials](docs/tutorials/README.adoc): new specification-style editions for coordinator APIs and leases, IntelliJ code study, and the companion URL shortener. The existing tutorials remain available below.
+
 [Distributed coordinator API and functionality tutorial](docs/COORDINATOR_APIS_AND_FUNCTIONALITY_TUTORIAL.md): five-minute core, complete API lifecycle, slot locking, epochs, retry semantics, inspection and failure walkthroughs at staff-engineer depth.
 
 [Detailed IntelliJ project study guide](docs/INTELLIJ_CODE_STUDY_TUTORIAL.md): ordered source reading, API/event traces, debugger checkpoints, exercises, tests, and engineering tradeoffs.

@@ -1,0 +1,130 @@
+= IntelliJ Code Study: Worker Leases and Local IDs
+:revdate: 2026-10-15
+:toc:
+:sectnums:
+:coordinator-java: ../../coordinator-service/src/main/java/com/example/workercoordinator
+:sdk-java: ../../worker-id-client/src/main/java/com/example/workeridclient
+
+== Purpose and prerequisites
+
+Study how the coordinator commits worker ownership and how an optional SDK uses
+that identity locally. This guide describes the existing implementation; exercises
+are predictions until you record observations. It preserves the
+link:../INTELLIJ_CODE_STUDY_TUTORIAL.md[original Markdown tutorial].
+Start with xref:COORDINATOR_APIS_AND_FUNCTIONALITY.adoc[the API and lease specification].
+
+Use Java 21 for IntelliJ's project SDK and Maven runner. Open
+`D:/java-projects/pom.xml` for the workspace, or this repository's `pom.xml` for
+coordinator-only study, and reload Maven. The workspace aggregates independent
+projects without supplying their inherited dependency configuration. A fresh
+workspace clone needs its coordinator and monitor submodules initialized first.
+
+Follow link:../../README.md[README] and link:../RUNBOOK.md[runbook] for infrastructure;
+start only the selected stack. Use an existing coordinator on port 8120 when
+appropriate, or the standalone configured address. Import the supplied Postman
+fixtures where available. No payment application is needed to study leases.
+
+== Source reading sequence
+
+[cols="1,3",options="header"]
+|===
+|Source |Question to answer
+|link:{coordinator-java}/api/controller/RegistrationController.java[RegistrationController] |Which requests register the generic hierarchy?
+|link:{coordinator-java}/infrastructure/persistence/RegistrationServices.java[RegistrationServices] |Where are parent associations and registration retries checked?
+|link:{coordinator-java}/api/dto/AcquireWorkerRequest.java[AcquireWorkerRequest] |Which fields describe namespace, incarnation and request identity?
+|link:{coordinator-java}/api/controller/WorkerController.java[WorkerController] |How do DTOs become domain commands and HTTP responses?
+|link:{coordinator-java}/domain/service/WorkerCoordinator.java[WorkerCoordinator] |What contract is independent of PostgreSQL?
+|link:{coordinator-java}/infrastructure/persistence/PostgresWorkerCoordinator.java[PostgresWorkerCoordinator] |Where do lock, epoch increment and history insertion share a transaction?
+|link:../../coordinator-service/src/main/resources/db/migration/V1__create_coordinator_schema.sql[Flyway V1] |Which keys preserve slot and generation identity?
+|link:{sdk-java}/LeaseAwareIdGenerator.java[LeaseAwareIdGenerator] |How do validity, synchronization, overflow and fencing interact?
+|link:{sdk-java}/IdLayout.java[IdLayout], link:{sdk-java}/Base62.java[Base62] |What is encoded, and what uniqueness information is absent?
+|link:../../worker-client-sample/src/main/java/com/example/workerclient/WorkerLeaseLifecycle.java[WorkerLeaseLifecycle] |Which acquire/renew/release policies belong to the sample client?
+|===
+
+Use Navigate to Declaration, Find Usages, Structure and the test gutter. Read
+request handling before stepping startup: ownership decisions occur in the
+controller, transaction and local-generation paths.
+
+== Trace one ownership lifecycle
+
+[source,text]
+----
+Product → Service → Worker Type → Worker Instance → Worker Lease
+register → acquire → inspect → renew → release
+----
+
+Register generic study IDs using the three registration endpoints in
+link:../API_EXAMPLES.md[API examples]. Acquire with your own process UUID and
+registration UUID; retain namespace, returned worker ID, instance UUID and epoch.
+Never choose ownership from an inspection response.
+
+Break in `WorkerController`, then `PostgresWorkerCoordinator.acquire()` before
+the candidate query. Inspect the following sequence:
+
+. Validate hierarchy/region; seed durable slot rows idempotently.
+. Look for an unexpired same-instance lease.
+. Otherwise select one available/expired candidate with `FOR UPDATE SKIP LOCKED`.
+. Increment retained epoch, assign owner/expiry, mark `LEASED`, insert history.
+. Commit the transaction before successful HTTP response delivery.
+
+Watch the full composite slot key. A worker number can repeat across namespaces.
+The candidate lock protects one slot through ownership/history changes; it does
+not make every acquisition stage nonblocking. `registrationId` is accepted but
+not persisted for replay. Concurrent same-instance absence checks require their
+own evidence and protocol.
+
+At each breakpoint, write the input identity, SQL predicate and expected next
+state before continuing. After the response, compare the returned epoch with
+the committed row. This connects controller DTO mapping to the storage invariant
+instead of treating a successful HTTP response as the whole correctness argument.
+
+Renew matches current owner/epoch/status plus an unexpired database deadline;
+release matches owner/epoch/status without requiring an unexpired deadline.
+Renew and release retain epoch. Expiry changes effective eligibility, not stored
+ownership; reassignment advances epoch. PostgreSQL `now()` is transaction-start
+time, which matters when stepping or waiting on locks.
+
+Use short thread-only pauses. Real lease time continues while the debugger is
+stopped; deterministic tests are better for clock-sensitive reasoning.
+
+== Decode the local ID boundary
+
+[source,text]
+----
+timestamp delta | region | worker | sequence
+41 bits           4        10       8
+----
+
+The default origin is 2024-01-01. There are 16 region values, 1,024 worker values
+and 256 sequence values per millisecond per worker. The resulting 256,000 IDs/s
+is a bit-space ceiling, not measured throughput. Overflow waits for a later
+millisecond; clock rollback or invalid ownership can permanently fence generation.
+Installing another lease does not undo a permanently fenced generator instance.
+
+Namespace and lease epoch are absent from the number. Identical worker/time bits
+can overlap across namespaces or incarnations. Base62 represents the same integer
+and adds no uniqueness. Downstream unique constraints protect committed identity;
+they do not reject every operation from a stale process. The shortener adapter's
+monotonic deadline and safety margin are separate from generic server behavior.
+
+== Tests and study evidence
+
+Open link:../../worker-id-client/src/test/java/com/example/workeridclient/LeaseAwareIdGeneratorTest.java[LeaseAwareIdGeneratorTest]
+for `generatesUniqueIdsAndPreservesConfiguredFields`,
+`waitsForNextMillisecondOnSequenceOverflow`, `expiryAndExplicitFencingStopGeneration`
+and `staleEpochAndClockRollbackFenceGenerator`. Its clock and sleeper make these
+conditions deterministic. Open
+link:../../coordinator-service/src/test/java/com/example/workercoordinator/infrastructure/persistence/RegistrationServicesTest.java[RegistrationServicesTest]
+for `sameProductRegistrationIsIdempotent` and `unknownParentIsRejected`.
+
+For each test, record initial state, action, invariant, enforcing code and evidence
+type: mocks, controlled time, real PostgreSQL or multiple JVMs. Controller class
+presence does not prove allocation races. Read-path integration coverage does
+not establish failover correctness. Run `mvn test` using
+link:../TESTING.md[documented Docker prerequisites].
+
+Explain one stale release, renewal timeout, sequence overflow and clock rollback.
+Predict the response before execution, then record the observation separately.
+For concurrent allocation, use distinct process identities and shared database
+authority. Preserve fixtures; do not run Maven clean, data resets or global Docker
+cleanup. Record the unresolved guarantee and evidence needed to establish it.

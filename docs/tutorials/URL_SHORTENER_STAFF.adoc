@@ -1,0 +1,347 @@
+= URL Shortener: Contracts, Capacity and Failure Specification
+:revdate: 2026-10-15
+:toc:
+:sectnums:
+:source-highlighter: highlight.js
+:shortener-java: ../../../url-shortener-lab/src/main/java/com/example/shortener
+:coordinator-java: ../../coordinator-service/src/main/java/com/example/workercoordinator
+:sdk-java: ../../worker-id-client/src/main/java/com/example/workeridclient
+
+== Scope and authority
+
+This condensed staff-level tutorial describes the companion Java shortener and
+its coordinator/SDK integration. The
+link:../URL_SHORTENER_STAFF_TUTORIAL.md[original tutorial] remains unchanged.
+Companion links require `url-shortener-lab` beside this repository in the workspace.
+*Implemented* means current source behavior; *Extension* means proposed production
+work. Examples and capacity numbers are illustrative, not load-test results.
+Uppercase MUST, SHOULD and MAY follow
+https://www.rfc-editor.org/rfc/rfc2119[RFC 2119] and
+https://www.rfc-editor.org/rfc/rfc8174[RFC 8174]. Requirements do not imply completed
+production verification.
+
+[source,text]
+----
+create:  owner/request key → intent lock → alias or local ID → SQL commit
+resolve: code → Redis / link PostgreSQL → expiry check → 302 Location
+IDs:     API-local generator → leased worker identity → coordinator PostgreSQL
+----
+
+The link database owns committed mappings and replay state. Redis accelerates
+reads. The generic coordinator owns the hierarchy
+`Product → Service → Worker Type → Worker Instance → Worker Lease`, not URLs or
+individual codes. Its slot allocation locks one row, increments epoch and writes
+history atomically. The shortener's domain remains outside coordinator behavior.
+
+=== Core invariants
+
+. One code has at most one committed destination across its lifetime.
+. One owner/request key has at most one committed link; changed intent conflicts.
+. Mapping and replay result commit together; success follows commit.
+. Cache presence cannot establish a mapping that never committed.
+. Lease failure stops generated creation on that process, not existing mappings.
+
+The implementation keeps destinations immutable and never recycles codes. If
+retention or erasure is introduced, the design MUST preserve required code
+reservations and explicitly define old-request replay. Multiple API/coordinator
+replicas still share database failure domains; they do not establish database HA.
+
+== Public request contracts
+
+The lab uses demo owner identity, not authentication:
+
+[source,http]
+----
+POST /api/links
+X-Demo-Owner: alice
+Content-Type: application/json
+
+{"requestKey":"lesson-001","url":"https://example.com/docs","ttlSeconds":300}
+----
+
+[cols="1,3",options="header"]
+|===
+|Outcome |Contract
+|Fresh create |`201`; newly committed mapping.
+|Same owner/key/payload |`200`, `duplicate:true`; original mapping and deadline.
+|Changed URL, TTL or alias under same key |`409`; no replacement mapping.
+|Occupied custom alias |Conflict; never overwrite its destination.
+|Unknown redirect code |`404`.
+|Expired redirect code |`410` at the authoritative expiry check.
+|Generated candidates exhausted |`503 CODE_EXHAUSTED` after bounded attempts.
+|Local generator unavailable |`503 ID_UNAVAILABLE` when a new generated code is required.
+|Resolver database budget full |`503 RESOLVER_BUSY`.
+|===
+
+Callers MUST retain owner, request key and original payload across retries.
+A timeout is an unknown outcome, not a request to mint a fresh identity. Demo
+owner headers MUST NOT be treated as proof of authenticated ownership.
+
+`GET /s/{code}` returns `302 Found`, `Location` and `Cache-Control: no-store` for
+a valid mapping. HTTP caching and internal Redis caching are separate policies.
+`302` alone does not prohibit caching; `no-store` supplies that instruction.
+The GET-only redirect does not fetch the destination or guarantee the client
+visits it. Already-disclosed destinations cannot be retracted through expiry.
+
+== Durable creation and response loss
+
+link:../../../url-shortener-lab/src/main/resources/db/migration/V1__short_links.sql[The shortener schema]
+uses `creation_requests` keyed by `(owner_id, request_key)` and `links` keyed by
+case-sensitive code with another unique owner/key constraint. Intent retains URL,
+requested TTL and alias; the result retains creation time and calculated expiry.
+Replay compares requested TTL without extending the stored deadline.
+
+link:{shortener-java}/LinkRepository.java[LinkRepository.create()] uses a four-second
+transaction timeout:
+
+[source,text]
+----
+BEGIN
+  insert owner/key intent ON CONFLICT DO NOTHING
+  SELECT owner/key intent FOR UPDATE
+  reject changed original payload
+  if already completed: return original mapping
+  otherwise choose alias or generate candidate
+  INSERT link ON CONFLICT(code) DO NOTHING RETURNING ...
+  attach admitted code to intent
+COMMIT
+return result
+----
+
+The owner/key row lock serializes competing retries. The code constraint
+arbitrates different intents choosing the same code. Generated collisions retry
+up to five times; an occupied alias immediately conflicts. Exhaustion rolls back
+intent and mapping together. `DO NOTHING RETURNING` distinguishes successful
+admission without aborting the transaction on an expected code conflict.
+A pre-insert availability check alone would race.
+
+[cols="1,2,2",options="header"]
+|===
+|Failure point |Durable result |Retry with same owner/key/payload
+|Before commit |Neither intent nor mapping survives rollback. |May create a mapping.
+|After commit, before response |Intent and mapping survive. |Returns original code; no new ID.
+|Commit acknowledgement lost |Client cannot know whether commit occurred. |Resolves outcome against authoritative state.
+|===
+
+Burned generated IDs are acceptable; overwritten links are not. These rules
+provide committed-creation replay within the database model. They do not prove
+exactly-once HTTP delivery or durability through unspecified failover. Retaining
+replay rows is part of retaining the old-retry contract.
+
+== Candidate codes and lease boundaries
+
+Base62 numerically represents an integer using `0-9`, `a-z`, `A-Z`. It adds no
+uniqueness or entropy. The default SDK layout is:
+
+[source,text]
+----
+timestamp delta | region | worker | sequence
+41 bits           4        10       8
+origin: 2024-01-01
+----
+
+The layout provides 16 regions, 1,024 worker values and 256 sequence values per
+millisecond. Its 256,000 IDs/s per-worker bit-space ceiling is not measured
+throughput; the timestamp horizon is approximately 69.7 years. Supported positive
+signed-64-bit integers need at most 11 Base62 characters, with variable length.
+
+Namespace and lease epoch are absent from the number. Higher epochs do not
+prevent repeated numeric IDs across reassignment, skewed clocks or namespaces.
+The link primary key prevents duplicate committed codes; it does not fence every
+stale write from a former owner. Downstream fencing would require the protected
+operation to validate ownership.
+
+link:{shortener-java}/CoordinatorIds.java[CoordinatorIds] uses a monotonic deadline
+derived before the lease request, subtracts a two-second safety margin and checks
+before and after generation. Initial acquisition failure can remain `WAITING` and
+retry; renewal failure permanently fences that incarnation. Recovery requires
+restarting fenced replicas. The generic SDK also synchronizes local calls,
+waits on sequence overflow and fences on clock rollback or invalid ownership.
+
+[cols="1,3",options="header"]
+|===
+|Alternative |Decision criterion
+|Database sequence + Base62 |Simple authority if measured creation demand fits; gaps and predictability remain.
+|Uniform random Base62 |Removes lease/clock coordination; size entropy and bound collision retries.
+|Leased local IDs + Base62 |Useful when local generation justifies ownership and clock operations.
+|Truncated URL hash |Requires explicit deduplication identity and collision handling.
+|===
+
+Eight random characters offer `62^8 = 218,340,105,584,896` candidates. For 100
+million uniform draws, expected colliding pairs are approximately 22.9, while
+the next-insert collision probability near that occupancy is only about
+`4.58e-7`. A likely historical collision and a high per-insert collision rate
+are different claims. Every strategy still needs database admission constraints.
+Public codes remain identifiers; private access requires authorization.
+
+== Resolution, expiry and bounded fallback
+
+link:{shortener-java}/LinkService.java[LinkService.resolve()] selects paths as follows:
+
+[cols="2,3",options="header"]
+|===
+|Cache condition |Required work
+|Valid nonexpiring hit |Redirect without database lookup.
+|Valid finite-expiry hit |Check primary database time, then redirect or `410`.
+|Miss, bypass or malformed envelope |Load primary mapping, validate expiry, populate cache.
+|Missing code |Return `404`; do not negative-cache it.
+|===
+
+Cache envelopes are versioned and carry explicit nonexpiring state. A missing
+expiry field cannot silently turn a finite link into a permanent one. Envelope
+validation handles malformed content, not malicious Redis writers. Avoiding
+negative caching prevents a pre-commit miss hiding an alias after commit.
+
+Finite expiry uses primary `clock_timestamp()`, which advances during execution,
+unlike transaction-start `now()`. The contract is validity at that database check.
+A subsequent process pause or network delay can deliver the redirect after expiry.
+Neither Redis TTL nor HTTP no-store supplies a stronger delivery-time guarantee.
+
+Defaults are 30-second cache TTL, 150 ms Redis operation timeout and one-second
+local cooldown after Redis errors. Resolver database work has four concurrent
+slots per API; excess work immediately returns `503 RESOLVER_BUSY`. The Hikari
+pool has eight connections, but creation/metadata use other paths. The semaphore
+therefore bounds resolver work, not all database traffic.
+
+During Redis failure, misses increase database demand. Bounded admission preserves
+recovery capacity by rejecting excess work rather than queueing indefinitely.
+Adding API replicas multiplies aggregate resolver and connection budgets; operators
+SHOULD size those totals against the shared database. Request coalescing, TTL
+jitter and bounded local caches are extensions to justify with measurements.
+
+== Capacity model
+
+Assume 10 million creates/day, 1 billion redirects/day, 10× peak, 95% cache hit
+rate and 20% finite links among hits. These are planning inputs, not observations.
+
+[cols="2,2,2",options="header"]
+|===
+|Quantity |Calculation |Estimate
+|Average creates |`10M / 86,400` |116/s
+|Peak creates |`116 × 10` |1,160/s
+|Average redirects |`1B / 86,400` |11,574/s
+|Peak redirects |`11,574 × 10` |115,740/s
+|Mapping payload |`10M × 500 B` |5 GB/day; 1.825 TB/year
+|Hot cache payload |`10M entries × 300 B` |3 GB before Redis overhead
+|===
+
+Storage also needs replay rows, indexes, WAL, replicas and backups. URL length
+distribution changes payload assumptions. With hit ratio `h` and finite fraction
+among hits `f`:
+
+[source,text]
+----
+resolver DB operations/s = redirect QPS × [(1-h) + h×f]
+                         = 115,740 × [0.05 + 0.95×0.20]
+                         ≈ 27,778/s
+----
+
+Misses alone predict 5,787/s, understating operation count by 4.8×. Clock checks
+can be cheaper than full mapping reads but still consume round trips/connections.
+At assumed mean database time 10 ms, Little's Law implies about 278 concurrent
+operations. Four slots per API imply an ideal local ceiling near 400 operations/s;
+tail latency, headroom and database saturation reduce usable capacity.
+
+Benchmark lookup, expiry check and creation separately. Increasing hit rate alone
+cannot remove finite-link database checks. A code receiving 20% of peak traffic
+gets about 23,148 requests/s: hashing distributes many keys, not copies of one
+hot key. Local/edge replicas and coalescing can spread reads, but relaxing finite
+expiry checks requires an explicit staleness and clock-error budget.
+
+== Failure and scaling decisions
+
+[cols="1,3",options="header"]
+|===
+|Event |Required reasoning
+|API dies after commit |Another API replays the same owner/key result; response loss does not undo commit.
+|Redis unavailable |Fallback consumes bounded resolver slots; some requests receive `503`.
+|Link database partition |Creation, replay and finite-expiry resolution cannot complete. Valid cached nonexpiring mappings may still redirect while Redis is reachable.
+|Coordinator renewal fails |Generated creation fences; redirects, available aliases and committed replays retain independent paths.
+|Add API replica |Acquire distinct process/worker ownership and recalculate aggregate database budgets; mappings need not move.
+|Recover fenced replica |Restore dependencies, restart incarnation, verify ID state and cross-replica replay before increasing traffic.
+|===
+
+*Extensions:* sharding changes correctness boundaries. `resolve(code)` and
+`create(owner,key)` naturally route by different keys. Splitting intent and
+mapping across shards breaks the current local transaction unless routing
+colocates state or a recoverable coordination protocol replaces it. Custom aliases
+still require one namespace authority. Migration MUST define retry routing and
+ownership as well as partition keys.
+
+A lagging read replica can return `404` immediately after successful creation.
+Primary or causal routing preserves read-after-create; unrestricted replica reads
+need an explicit staleness contract. Asynchronous failover can lose acknowledged
+mapping/replay state. Define RPO, RTO, restore behavior and replication together.
+Region bits do not solve global alias conflicts or request-key ownership.
+
+=== Preserve contracts while changing topology
+
+Before introducing a shard, list both routing identities: public code for reads
+and owner/request key for retries. Define how an old key reaches the same
+authoritative intent during migration, how a new alias is reserved, and what
+happens when copying finishes but a response is lost. Copying link rows without
+their retry identity can preserve redirects while breaking creation replay.
+
+Before adding an edge cache, specify whether finite links still consult the
+primary or accept bounded stale expiry. Define the maximum propagation interval
+for an emergency takedown and whether a previously disclosed destination remains
+usable. Destination immutability simplifies updates but does not answer revocation.
+
+These are design exercises, not implemented deployment procedures. A topology
+change is ready only when its authority, failure response and recovery boundary
+can be explained for both creation and resolution.
+
+== Production obligations and study evidence
+
+*Extensions:* define request-class SLIs for nonexpiring redirects, finite redirects,
+generated creation, aliases and replay. Illustrative targets are 99.95% redirect
+availability/p99 below 50 ms and 99.9% creation availability/p99 below 200 ms;
+these are proposed objectives, not achieved results. Over 30 days those budgets
+allow 21.6 and 43.2 minutes respectively. Classify expected `404`/`410` separately
+from dependency failures and track expiry correctness independently.
+
+Observe tail latency, cache hit/bypass, expiry checks, pool waits, resolver
+rejection, ambiguous writes and ID state. Health checks alone do not establish
+usable generated IDs. Avoid raw destination/code metric labels. Authenticated
+creation, quotas, takedown authority/propagation and replay retention need design.
+Current destination validation requires absolute ASCII HTTP(S), a host, no user
+information and bounded length. A future preview fetcher needs SSRF controls;
+the redirect handler itself does not download destinations.
+
+Read link:{shortener-java}/LinkRepository.java[LinkRepository],
+link:{shortener-java}/LinkService.java[LinkService],
+link:{shortener-java}/LinkCache.java[LinkCache],
+link:{shortener-java}/CoordinatorIds.java[CoordinatorIds],
+link:{coordinator-java}/infrastructure/persistence/PostgresWorkerCoordinator.java[PostgresWorkerCoordinator]
+and link:{sdk-java}/LeaseAwareIdGenerator.java[LeaseAwareIdGenerator].
+Then inspect
+link:../../../url-shortener-lab/src/test/java/com/example/shortener/ShortenerIntegrationTest.java[ShortenerIntegrationTest]
+and link:../../../url-shortener-lab/src/test/java/com/example/shortener/CoordinatorIdsTest.java[CoordinatorIdsTest]
+for replay, collision, rollback, cached expiry, resolver saturation and delayed
+lease responses. Use the companion
+link:../../../url-shortener-lab/docs/USER_GUIDE.md[run guide] for controlled runtime
+exercises. These tests do not prove production HA or universal ID uniqueness.
+
+For a study record, predict four paths: nonexpiring cache hit, finite cache hit,
+committed replay while generation is fenced, and database-bound resolution during
+Redis failure. For each, name required dependencies and whether a new ID is
+needed. Then inspect the corresponding source branch and test assertion. A
+returned redirect, a cache-source indicator and a valid lease are different
+observations; none alone establishes the correctness of every request class.
+
+When recording performance, separate gateway timing from end-to-end client
+latency, successful requests from rejections, and finite from nonexpiring hits.
+Report workload assumptions alongside percentiles. Compare measured database
+operations with the capacity formula before attributing a bottleneck to Redis,
+the coordinator or API replica count.
+
+Explain a create, lost response, same-key replay and finite redirect; identify
+authority, transaction, clock and dependency at each step. Then remove Redis,
+delay a replica or reassign a worker and state precisely which contract changes.
+
+References:
+https://www.rfc-editor.org/rfc/rfc9110.html#section-15.4[HTTP redirects],
+https://www.rfc-editor.org/rfc/rfc9111.html#section-5.2.2.5[HTTP no-store],
+https://www.postgresql.org/docs/current/sql-insert.html[PostgreSQL conflict handling],
+https://www.postgresql.org/docs/current/functions-datetime.html#FUNCTIONS-DATETIME-CURRENT[database clocks]
+and https://cheatsheetseries.owasp.org/cheatsheets/Server_Side_Request_Forgery_Prevention_Cheat_Sheet.html[OWASP SSRF prevention].

@@ -1,0 +1,44 @@
+= Concise AsciiDoc Tutorials
+:revdate: 2026-10-15
+:toc:
+
+These new editions use specification-style contracts, tables and explicit
+implementation boundaries. Existing Markdown tutorials and `TECHNICAL_SPEC.md`
+remain unchanged. Read the coordinator contract first, then choose source study
+or the companion shortener case.
+
+[cols="2,3",options="header"]
+|===
+|Tutorial |Purpose
+|xref:COORDINATOR_APIS_AND_FUNCTIONALITY.adoc[Coordinator APIs and leases] |Identity, endpoints, allocation transaction, clock semantics, retries and capacity.
+|xref:INTELLIJ_CODE_STUDY.adoc[IntelliJ code study] |Source reading order, debugger checkpoints, deterministic tests and evidence.
+|xref:URL_SHORTENER_STAFF.adoc[URL shortener] |Durable replay, code admission, cache/expiry contracts, capacity and failure.
+|===
+
+== Reading and rendering
+
+Read `.adoc` directly or use an AsciiDoc editor preview. With Asciidoctor CLI
+available, run from the repository root:
+
+[source,powershell]
+----
+asciidoctor -D "$env:TEMP/worker-coordinator-tutorials" docs/tutorials/*.adoc
+----
+
+This produces HTML in a temporary folder. Use the repository source or editor
+preview for relative source-file links; these expect the checked-out directory
+layout, including the sibling `url-shortener-lab` for companion links. Keep
+rendered pages together so cross-tutorial HTML navigation resolves.
+
+An Asciidoctor PDF converter can additionally produce PDF; it is a separate
+toolchain. No rendering dependency is added to the application Maven build.
+
+== Originals
+
+* link:../COORDINATOR_APIS_AND_FUNCTIONALITY_TUTORIAL.md[Coordinator API tutorial]
+* link:../INTELLIJ_CODE_STUDY_TUTORIAL.md[IntelliJ study tutorial]
+* link:../URL_SHORTENER_STAFF_TUTORIAL.md[URL-shortener staff tutorial]
+
+These editions describe source behavior and proposed design work separately.
+Study exercises are not execution records, and capacity examples are not
+benchmarks. Consult each project's verification records for runtime evidence.

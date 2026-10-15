@@ -1,0 +1,316 @@
+= Worker-ID Coordinator: API and Lease Specification
+:revdate: 2026-10-15
+:toc:
+:sectnums:
+:source-highlighter: highlight.js
+:coordinator-java: ../../coordinator-service/src/main/java/com/example/workercoordinator
+:sdk-java: ../../worker-id-client/src/main/java/com/example/workeridclient
+
+== Scope and reading convention
+
+This condensed tutorial describes the current Java 21 / Spring Boot 3 implementation.
+PostgreSQL grants temporary ownership of worker slots; coordinator replicas share
+that authority. The optional SDK generates IDs locally. The coordinator does not
+serve individual IDs or establish end-to-end distributed fencing.
+
+*Implemented* identifies source behavior. *Client requirement* states how a caller
+must use that behavior. *Extension* identifies a proposed capability, not a current
+guarantee. Uppercase MUST, MUST NOT, SHOULD and MAY use
+https://www.rfc-editor.org/rfc/rfc2119[RFC 2119] and
+https://www.rfc-editor.org/rfc/rfc8174[RFC 8174] meanings. Such wording records
+obligations; it does not establish that every obligation has a passing test.
+Examples predict outcomes; they are not runtime evidence from this writing session.
+
+The link:../COORDINATOR_APIS_AND_FUNCTIONALITY_TUTORIAL.md[original tutorial]
+remains available for the complete PowerShell lifecycle and discussion questions.
+
+== Identity and authority
+
+[source,text]
+----
+Product → Service → Worker Type → Worker Instance → Worker Lease
+
+namespace = (productId, serviceId, workerTypeId, regionId)
+slot      = namespace + workerId
+ownership = slot + instanceId + epoch
+validity  = ownership + leaseExpiry
+----
+
+[cols="1,3",options="header"]
+|===
+|Field |Contract
+|Hierarchy IDs |Stable identifiers; names are metadata. Service and worker-type IDs are globally unique within their tables.
+|`regionId` |Request namespace partition, range `0..15`.
+|`workerId` |Reusable namespace-local slot number, returned by acquisition.
+|`instanceId` |UUID identifying one running process incarnation.
+|`epoch` |Retained PostgreSQL `BIGINT`; strictly increases on each new slot allocation.
+|`registrationId` |Required UUID; currently does not provide persistent request replay.
+|`leaseExpiry`, `leaseDuration` |Java `Instant` absolute deadline and `Duration` configured lifetime.
+|===
+
+*Client requirement:* separate live processes MUST use distinct instance UUIDs.
+Renew/release callers MUST retain the complete returned ownership identity.
+Neither worker number nor epoch alone identifies a global resource.
+
+*Implemented invariant:* a slot has one committed current-owner tuple. Allocation
+increments its epoch and records history atomically. This protects database
+ownership transitions; it cannot stop an isolated former owner executing elsewhere.
+Unrelated namespaces MAY both allocate worker 7 in region 1.
+
+== HTTP contracts
+
+All paths below have prefix `/api/v1`. Controllers map REST DTOs to domain commands;
+persistence entities are not exposed as API resources.
+
+=== Hierarchy registration and inspection
+
+[cols="1,3,3",options="header"]
+|===
+|Method |Path |Input or result
+|POST |`/products` |`productId`, `productName`; definition, `201`.
+|GET |`/products` |Definitions sorted by ID, `200`.
+|GET |`/products/{productId}` |One definition, `200`.
+|POST |`/products/{productId}/services` |`serviceId`, `serviceName`; definition, `201`.
+|GET |`/products/{productId}/services` |Child services sorted by ID, `200`.
+|GET |`/services/{serviceId}` |One definition, `200`.
+|POST |`/services/{serviceId}/worker-types` |`workerTypeId`, `workerTypeName`; definition, `201`.
+|GET |`/services/{serviceId}/worker-types` |Child types sorted by ID, `200`.
+|GET |`/worker-types/{workerTypeId}` |One definition, `200`.
+|===
+
+IDs are nonblank and at most 100 characters; names are nonblank and at most 255.
+New definitions are `ACTIVE`; child definitions include the parent ID. Existing
+parents without children return `[]`; missing parents return `404`.
+
+Sequential registration with identical ID, parent and name returns the existing
+definition with `201`. Changed metadata or parent conflicts. Registration does
+not rename or move resources, and no update/delete/disable endpoint exists.
+The existence-check/JPA-save sequence does not establish concurrent registration
+replay correctness; that needs database race tests.
+
+=== Lease operations
+
+[cols="1,2,3",options="header"]
+|===
+|POST path |Request |Success
+|`/workers/acquire` |Namespace, instance UUID, registration UUID |Worker lease, `201`, including live same-instance reuse.
+|`/workers/renew` |Acquire fields plus worker ID and epoch |Updated worker lease, `200`.
+|`/workers/release` |Same fields as renew |`{released:true, epoch:...}`, `200`.
+|===
+
+Lease responses contain `productId`, `serviceId`, `workerTypeId`, `regionId`,
+`workerId`, `epoch`, `instanceId`, `leaseExpiry` and `leaseDuration`.
+Renew/release validate `workerId >= 0` and `epoch >= 1`. Clients MUST send every
+identity field explicitly: primitive numeric DTO fields do not enforce presence.
+
+After registering a study hierarchy, acquire with actual UUIDs:
+
+[source,json]
+----
+{
+  "productId": "study-product",
+  "serviceId": "study-service",
+  "workerTypeId": "study-worker",
+  "regionId": 1,
+  "instanceId": "6f93fbc2-67b1-4a49-a1ad-a940b7917061",
+  "registrationId": "78d91510-b349-42ea-9d12-0954ae9b1aaa"
+}
+----
+
+Use a fresh process UUID for your own incarnation. Save the returned slot and
+epoch, inspect it, renew promptly, then release using those fields. A `201`
+acquisition response does not distinguish a new generation from live-lease reuse.
+The default deadline is 30 seconds; manual debugger pauses consume that lifetime.
+
+=== Slot inspection
+
+`GET /worker-types/{workerTypeId}/workers` returns
+`{workers, limit, offset, hasMore}`. Optional filters are `regionId=0..15` and
+`status=AVAILABLE|LEASED|EXPIRED`; `limit=1..1000` defaults to 100 and `offset>=0`
+defaults to zero. Ordering is `regionId, workerId`. Fetching one extra row supplies
+`hasMore` without a count query.
+
+`GET /worker-types/{workerTypeId}/regions/{regionId}/workers/{workerId}` returns
+one slot or `404 WORKER_NOT_FOUND`. Each slot includes namespace, worker ID,
+epoch, owner instance UUID, effective status and lease expiry.
+
+Worker-type lookup resolves its product/service prefix for slot-index access.
+No slots exist until successful first acquisition seeds that namespace/region.
+Reads take no row locks. Clients MUST NOT treat an availability observation as
+reservation or an owner observation as renewal. Separate offset pages are not
+one frozen snapshot; expiry and concurrent mutations can change membership.
+
+== Atomic allocation and persistence
+
+link:{coordinator-java}/infrastructure/persistence/PostgresWorkerCoordinator.java[PostgresWorkerCoordinator]
+performs acquisition in one Spring transaction:
+
+. Validate hierarchy associations, active product/type policy and region.
+. Seed the configured slot range using `INSERT ... ON CONFLICT DO NOTHING`.
+. Lock and return an existing unexpired same-instance lease if found.
+. Otherwise lock one eligible candidate using `FOR UPDATE SKIP LOCKED`.
+. Increment epoch, install owner/expiry and set stored status `LEASED`.
+. Insert ownership history and commit before the HTTP success response.
+
+[source,sql]
+----
+SELECT worker_id, current_epoch
+FROM workers
+WHERE product_id = :productId AND service_id = :serviceId
+  AND worker_type_id = :workerTypeId AND region_id = :regionId
+  AND (status <> 'LEASED' OR lease_expiry <= now())
+ORDER BY worker_id
+FOR UPDATE SKIP LOCKED LIMIT 1;
+----
+
+The selected slot remains locked through ownership and history writes. A failed
+history insert rolls back allocation. Another allocator can skip that candidate;
+no namespace-wide lock is implied. Empty selection can mean temporary candidate
+locks rather than permanent exhaustion. Seeding and the same-instance lock can
+still wait; the entire acquisition path is not nonblocking.
+
+[cols="1,3",options="header"]
+|===
+|Table |Responsibility
+|`products`, `services`, `worker_types` |Hierarchy and lifecycle metadata.
+|`workers` |Durable composite slot key and current ownership; rows/epochs retained.
+|`worker_lease_history` |Unique slot-plus-epoch allocation history and explicit release.
+|`idempotency_records` |Reserved schema; unused by current lease operations.
+|===
+
+There is no separate worker-instance table. History retains allocation expiry;
+renewal does not update its `expires_at`, and passive expiry adds no event.
+It is not a complete renewal/expiry audit stream. Flyway exclusively evolves
+schema; JPA uses `ddl-auto=validate`. Expiry uses `TIMESTAMPTZ`, epochs `BIGINT`,
+owners UUID. Individual foreign keys establish existence; service validation
+checks hierarchy associations.
+
+Current validation does not check service active state. A disabled product emits
+`SERVICE_DISABLED`. These are implementation details to recognize, not new policy.
+
+== Lease state machine and clock semantics
+
+[source,text]
+----
+AVAILABLE(k) --acquire--> LEASED(k+1)
+LEASED(k+1) --renew----> LEASED(k+1, recalculated expiry)
+LEASED(k+1) --release--> AVAILABLE(k+1)
+LEASED past deadline --> effectively EXPIRED; stored row unchanged
+EXPIRED --acquire-----> LEASED(k+2, new owner)
+----
+
+Renewal requires matching namespace, slot, owner, epoch, stored `LEASED` status
+and `lease_expiry > now()`. It sets expiry to database time plus configured
+duration, not previous expiry plus duration. Any unmatched predicate returns
+`409 LEASE_EXPIRED`, including a stale owner or epoch.
+
+Release requires matching slot, owner, epoch and stored `LEASED` status. It clears
+owner/expiry, retains epoch and marks history released. It does not require a
+live deadline or revalidate hierarchy. An expired owner can release an unreassigned
+slot; it cannot release its successor. Repeated release returns `409 STALE_EPOCH`.
+
+Inspection derives `EXPIRED` when stored status is `LEASED` and deadline has
+passed. Expiry alone neither clears ownership nor increments epoch. Acquisition
+can reuse that row without a background expiry scheduler.
+
+Acquire, renew and reads use PostgreSQL `now()`, fixed at transaction start.
+A renewal waiting for a lock uses that earlier timestamp, not guaranteed time
+at lock acquisition or commit. Response delay also reduces remaining lifetime.
+Clients MUST NOT interpret `leaseDuration` as a fresh full lifetime on receipt.
+Conservative deadlines and explicit lock/transaction timeout policies are design
+extensions; changing database clock functions requires reviewing the contract.
+
+=== Worked ownership timeline
+
+Assume short transactions and a 30-second duration. At database second zero,
+A acquires slot zero with epoch 1 and expiry 30. At second 10, renewal retains
+epoch 1 and sets expiry 40; the allocation-history expiry remains 30. At second
+41, an inspection returns effective `EXPIRED` while storage still names A.
+At second 42, B can acquire that slot with epoch 2 and expiry 72. A's delayed
+epoch-1 renew and release then fail without changing B's ownership. B's release
+clears owner/expiry while retaining epoch 2 for the next allocation.
+
+This example separates three events that are easy to confuse: deadline passage,
+database reassignment and a former process learning that its ownership ended.
+Only reassignment advances epoch. An inspection response does not synchronize
+the former owner's execution with the database decision.
+
+== Retry and error contracts
+
+Same-instance acquisition reuses a still-valid lease without advancing epoch or
+extending expiry. After expiry, retry may create a new generation. There is no
+durable registration-ID fingerprint/response protocol or unique constraint
+restricting one instance to one live slot. Concurrent same-instance requests
+that both observe absence are not covered by a single-lease-per-instance guarantee.
+Each selected slot still receives its own transactional ownership protection.
+
+Clients SHOULD use bounded retries with backoff/jitter and retain identity.
+A timeout MUST be treated as an unknown outcome, not proof of rollback. Renew
+retries recalculate expiry; release retries can conflict after successful release.
+
+[cols="1,2,3",options="header"]
+|===
+|HTTP |Code |Meaning
+|400 |`INVALID_REQUEST` |Handled body/parameter validation or conversion failure.
+|400 |`INVALID_STATUS_FILTER` |Recognized enum unsupported as slot status.
+|404 |`*_NOT_FOUND` |Missing product/service/type/worker or rejected association.
+|409 |`WORKER_NOT_AVAILABLE` |No selectable candidate on this attempt.
+|409 |`LEASE_EXPIRED` |Renew predicate matched no valid current ownership.
+|409 |`STALE_EPOCH` |Release predicate matched no current ownership.
+|409 |`SERVICE_DISABLED`, `WORKER_TYPE_DISABLED` |Current hierarchy policy rejected acquire/renew.
+|409 |`IDEMPOTENCY_CONFLICT`, `SERVICE_ALREADY_EXISTS`, `WORKER_TYPE_ALREADY_EXISTS` |Registration metadata/parent conflict.
+|===
+
+Domain errors contain `timestamp`, `code`, `message`, `path`. Handled validation
+errors contain `errors` instead of the domain message. Unknown enum tokens bind
+as `INVALID_REQUEST`; recognized `ACTIVE`, `DISABLED`, `RELEASED` filters produce
+`INVALID_STATUS_FILTER`. The custom handler does not normalize every malformed
+body or database failure; clients cannot assume one universal error envelope.
+
+== Capacity, client boundary and verification
+
+Defaults are 30-second lease, intended 10-second renewal cadence, 10 worker bits
+and deployment region metadata 1. Requests choose region; the server does not
+schedule client renewal. There are `2^10 = 1,024` slots per namespace/region.
+10,000 owners renewing every 10 seconds imply 1,000 renewals/s and at least ten
+pools before headroom. A pool with 900 owners cannot admit 150 overlapping
+replacement processes simultaneously.
+
+Acquisition attempts full-range seeding every call. At 100 acquires/s and 1,024
+slots, 102,400 seed candidates/s are considered, mostly conflicts after initialization.
+Measure seeding, lock waits, transaction latency, saturation and remaining client
+lease time separately. History growth follows allocations rather than renewals.
+
+The SDK layout is `timestamp(41) | region(4) | worker(10) | sequence(8)`.
+Namespace and lease epoch are absent. Local expiry/rollback checks do not prove
+cross-process uniqueness or downstream stale-write rejection. Worker-bit changes
+require compatibility design across server and clients.
+
+Study link:{coordinator-java}/api/controller/WorkerController.java[WorkerController],
+link:{coordinator-java}/infrastructure/persistence/PostgresWorkerQueryService.java[PostgresWorkerQueryService],
+link:{coordinator-java}/api/controller/ApiExceptionHandler.java[ApiExceptionHandler],
+link:../../coordinator-service/src/main/resources/db/migration/V1__create_coordinator_schema.sql[the migration]
+and link:{sdk-java}/LeaseAwareIdGenerator.java[LeaseAwareIdGenerator].
+Run `mvn test`; see link:../TESTING.md[testing] for Docker prerequisites and
+`mvn test '-Dapi.version=1.44'` compatibility guidance. Mocked registration,
+read-path PostgreSQL and deterministic SDK tests provide different evidence;
+they do not establish allocation-race or failover correctness.
+
+A mutation/concurrency verification plan SHOULD exercise distinct instances
+competing for the last slot, rollback when history insertion fails, stale-owner
+renew/release after reassignment and same-instance concurrent acquisition.
+Assertions MUST inspect committed ownership and history, not just HTTP success.
+For failover, separately establish which acknowledged epochs survive recovery;
+retained local Docker data alone does not prove that property. Runtime failure
+exercises belong in the selected project's run guide and must record actual
+observations independently of these source-derived predictions.
+
+Before extending the design, explain acquire → lost response → retry → renewal →
+expiry → reassignment → stale release. Name identity, authoritative row,
+transaction boundary and predicate at every step. Persistent replay, downstream
+fencing, authentication and failover guarantees require explicit design and tests.
+
+References: PostgreSQL
+https://www.postgresql.org/docs/current/sql-select.html#SQL-FOR-UPDATE-SHARE[row locks],
+https://www.postgresql.org/docs/current/transaction-iso.html#XACT-READ-COMMITTED[isolation]
+and https://www.postgresql.org/docs/current/functions-datetime.html#FUNCTIONS-DATETIME-CURRENT[time functions].
